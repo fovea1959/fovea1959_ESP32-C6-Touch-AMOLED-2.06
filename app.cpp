@@ -11,7 +11,13 @@
 #include <Arduino.h>
 #include <lvgl.h>
 
+#include "globals.h"
+
 #define TT_TYPE int64_t
+
+void setBrightness(int b) {
+  ((Arduino_CO5300 *)gfx)->setBrightness(b);
+}
 
 TT_TYPE get_time_millis() {
   return millis();
@@ -290,8 +296,10 @@ static void timer_button_event_cb(lv_event_t * e) {
   
   if (code == LV_EVENT_SINGLE_CLICKED) {
     if ((timer->tt).running) {
+      setBrightness(24);
       tt_stop(&(timer->tt));
     } else {
+      setBrightness(128);
       tt_start(&(timer->tt));
     }
     tab->tick(tab);

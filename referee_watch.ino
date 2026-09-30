@@ -7,6 +7,7 @@
 #include "lv_conf.h"
 #include "HWCDC.h"
 #include "app.h"
+#include "globals.h"
 
 HWCDC USBSerial;
 static constexpr uint32_t LVGL_BUFFER_LINES = 20;
@@ -71,8 +72,11 @@ void setup() {
   DEV_DEVICE_INIT();
 #endif
   USBSerial.begin(115200);
+
   if (!gfx || !gfx->begin()) { USBSerial.println("Display initialization failed; LVGL disabled."); return; }
   gfx->fillScreen(RGB565_BLACK);
+  ((Arduino_CO5300 *)gfx)->setBrightness(24);
+
   Wire.begin(IIC_SDA, IIC_SCL);
   for (uint8_t attempt = 1; FT3168 && attempt <= 5 && !touch_ready; ++attempt) {
     touch_ready = FT3168->begin();
