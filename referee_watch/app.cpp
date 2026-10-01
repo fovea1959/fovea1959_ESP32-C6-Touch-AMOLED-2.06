@@ -35,28 +35,18 @@ void disableAmp() {
 }
 #endif
 
+int number_of_beeps = 0;
+
 void beep_on() {
-#if AUDIO
-  static int16_t buf[256 * 2];
-  static float phase = 0;
-  size_t written = 0;
+  printf("Beep_on!\n");
   enableAmp();
-  for (int n = 0; n < SAMPLE_RATE / 256; n++) {
-    for (int i = 0; i < 256; i++) {
-      int16_t s = (int16_t)(sinf(phase) * 16000);   // was 8000
-      phase += 2 * PI * 1760.0f / SAMPLE_RATE;      // was 440.0f
-      if (phase > 2 * PI) phase -= 2 * PI;
-      buf[2 * i] = s;
-      buf[2 * i + 1] = s;
-    }
-    written += i2s.write((uint8_t *)buf, sizeof(buf));
-  }
-  printf("wrote %u bytes\n", (unsigned)written);
-  disableAmp();  
-#endif
+  number_of_beeps = 3;
 }
 
 void beep_off() {
+  printf("Beep_off!\n");
+  number_of_beeps = 0;
+  disableAmp();  
 }
 
 #endif
@@ -132,28 +122,6 @@ struct TimerBump_s {
   int consecutive_long_presses;
 };
 
-typedef struct Beeper_s Beeper; 
-
-struct Beeper_s {
-  TT_TYPE beep_start;
-};
-
-Beeper beeper;
-
-void beep() {
-  if (beeper.beep_start == 0) beep_on();
-  beeper.beep_start = get_time_millis();
-}
-
-void beeper_timer() {
-  if (beeper.beep_start == 0) return;
-  TT_TYPE now = get_time_millis();
-  if (now - beeper.beep_start > 3000) {
-    beep_off();
-    beeper.beep_start = 0;
-  }
-}
-    
 void tt_init (TT * tt, TT_TYPE start_value) {
   tt->running = false;
   tt->accumulated = 0;
@@ -165,7 +133,7 @@ void tt_reset (TT * tt) {
 }
 
 void tt_dump (TT * tt, char * s) {
-#if __linux__
+#if __linux__ && 0
   printf ("TT dump: %s, running = %d, start_value = %ld, accumulated = %ld, started = %ld\n",
      s, tt->running, tt->start_value, tt->accumulated, tt->started);
   fflush(stdout);
@@ -220,19 +188,21 @@ bool is_i_in_list(int i, const int * lp) {
   }
 }
 
-Tab tabs[4];
+Tab tabs[5];
 
 void xxxx(char * c) {
+#if 0
   for (int i = 0; i < 4; i++) {
     printf("%s: tab %d name = '%s'\n", c, i, tabs[i].name);
   }
+#endif
 }
 
 uint32_t visible_tab_index = 0;
 
 static char last_label[MMSS_L] = {0};
 
-void timer_tick(Tab * tab) {
+void timer_update(Tab * tab) {
   Timer * timer = (Timer *) (tab -> tab_data);
   TT_TYPE remaining_ms = tt_remaining(&timer->tt);
 
@@ -246,8 +216,10 @@ void timer_tick(Tab * tab) {
   int ss = rs % 60;
   
   if (timer->tt.running) {
+    printf("checking %d to see if I should beep... ", rs);
     bool should_beep = is_i_in_list(rs, timer->beep_points);
-    if (should_beep) beep();
+    printf("%s\n", should_beep ? "yep" : "nope");
+    if (should_beep) beep_on();
   }
 
   if (rs == 0) {
@@ -257,7 +229,7 @@ void timer_tick(Tab * tab) {
   if (timer->tt.running) {
     setBrightness(100);
   } else {
-    setBrightness(24);
+    setBrightness(40);
   }
 
   char label[MMSS_L];
@@ -337,6 +309,15 @@ static void timer_button_event_cb(lv_event_t * e) {
     if ((timer->tt).running) {
       tt_stop(&(timer->tt));
     } else {
+      TT_TYPE remaining = tt_remaining(&(timer->tt));
+      printf("time remaining = %lld\n", remaining);
+      if (!remaining) {
+        printf("reset1: %lld\n", tt_remaining(&(timer->tt)));
+        tt_reset(&(timer->tt));
+        printf("reset2: %lld\n", tt_remaining(&(timer->tt)));
+      } else {
+        printf("resetx: non-zero remaining\n");
+      }
       tt_start(&(timer->tt));
     }
     tab->tick(tab);
@@ -385,7 +366,47 @@ void my_timer_cb(lv_timer_t * timer) {
   Tab visibleTab = tabs[visible_tab_index];
   visibleTab.tick(&visibleTab);
   
-  beeper_timer();
+  // beeper_timer();
+}
+
+void beep_timer_cb(lv_timer_t * timer) {
+  (void) timer;
+  if (number_of_beeps > 0) {
+#if AUDIO
+    static int16_t buf[256 * 2];
+    static float phase = 0;
+    size_t written;
+    
+    written = 0;
+    for (int n = 0; n < (SAMPLE_RATE * 0.25) / 256; n++) {
+      for (int i = 0; i < 256; i++) {
+        int16_t s = (int16_t)(sinf(phase) * 16000);   // was 8000
+        phase += 2 * PI * 1760.0f / SAMPLE_RATE;      // was 440.0f
+        if (phase > 2 * PI) phase -= 2 * PI;
+        buf[2 * i] = s;
+        buf[2 * i + 1] = s;
+      }
+      written += i2s.write((uint8_t *)buf, sizeof(buf));
+    }
+    // printf("wrote %u bytes\n", (unsigned)written);
+
+    written = 0;
+    for (int n = 0; n < (SAMPLE_RATE * 0.25) / 256; n++) {
+      for (int i = 0; i < 256; i++) {
+        int16_t s = (int16_t)(sinf(phase) * 16000);   // was 8000
+        phase += 2 * PI * 880.0f / SAMPLE_RATE;      // was 440.0f
+        if (phase > 2 * PI) phase -= 2 * PI;
+        buf[2 * i] = s;
+        buf[2 * i + 1] = s;
+      }
+      written += i2s.write((uint8_t *)buf, sizeof(buf));
+    }
+    // printf("wrote %u bytes\n", (unsigned)written);
+#endif
+    number_of_beeps--;
+  } else {
+    disableAmp();
+  }
 }
 
 TimerBump * makeTimerBump(Timer * t, int inc) {
@@ -399,7 +420,7 @@ TimerBump * makeTimerBump(Timer * t, int inc) {
 void setup_timer_tab (lv_obj_t * tabview, Tab * tab, char * title, int start_seconds, const int * beep_points) {
   lv_obj_t * lv_tabview_tab = lv_tabview_add_tab(tabview, title);
   
-  tab->tick = timer_tick;
+  tab->tick = timer_update;
   tab->name = title;
   
   tab->tab_data = malloc(sizeof(Timer));
@@ -486,9 +507,9 @@ void app() {
 
   // Tab * tab0 = &tabs[0];
   setup_timer_tab(tabview, &tabs[0], "0:06\nTest", 6, (const int[]) {3, -1});
-  setup_timer_tab(tabview, &tabs[1], "1:00\nTimeout", 60, (const int[]) {20, -1});
+  setup_timer_tab(tabview, &tabs[1], "1:00\nTimeout", 60, (const int[]) {20, 5, -1});
   setup_timer_tab(tabview, &tabs[2], "3:00\nBetween\nSets", 180, (const int[]) {65, 35, 5, -1});
-  setup_timer_tab(tabview, &tabs[3], "4/4/2\nWarmup", 10 * 60, (const int[]) {20, 120 + 20, 360 + 20, -1});
+  setup_timer_tab(tabview, &tabs[3], "4/4/2\nWarmup", 10 * 60, (const int[]) {20, 2*60 + 20, 6*60 + 20, -1});
   setup_timer_tab(tabview, &tabs[4], "4/4/4/4\nWarmup", 20 * 60, (const int[]) {20, 4*60 + 20, 8*60 + 20, 12*60 + 20, 16*60 + 20, -1});
 
   xxxx("pre-tick");
@@ -496,4 +517,5 @@ void app() {
   xxxx("post-tick");
 
   lv_timer_create(my_timer_cb, 500, NULL);
+  lv_timer_create(beep_timer_cb, 500, NULL);
 }
