@@ -23,7 +23,37 @@ TT_TYPE get_time_millis() {
   return millis();
 }
 
+#if AUDIO
+void enableAmp() {
+  pinMode(PA_PIN, OUTPUT);
+  digitalWrite(PA_PIN, HIGH);
+}
+
+void disableAmp() {
+  pinMode(PA_PIN, OUTPUT);
+  digitalWrite(PA_PIN, LOW);
+}
+#endif
+
 void beep_on() {
+#if AUDIO
+  static int16_t buf[256 * 2];
+  static float phase = 0;
+  size_t written = 0;
+  enableAmp();
+  for (int n = 0; n < SAMPLE_RATE / 256; n++) {
+    for (int i = 0; i < 256; i++) {
+      int16_t s = (int16_t)(sinf(phase) * 16000);   // was 8000
+      phase += 2 * PI * 1760.0f / SAMPLE_RATE;      // was 440.0f
+      if (phase > 2 * PI) phase -= 2 * PI;
+      buf[2 * i] = s;
+      buf[2 * i + 1] = s;
+    }
+    written += i2s.write((uint8_t *)buf, sizeof(buf));
+  }
+  printf("wrote %u bytes\n", (unsigned)written);
+  disableAmp();  
+#endif
 }
 
 void beep_off() {
@@ -220,6 +250,16 @@ void timer_tick(Tab * tab) {
     if (should_beep) beep();
   }
 
+  if (rs == 0) {
+    tt_stop(&timer->tt);
+  }
+
+  if (timer->tt.running) {
+    setBrightness(100);
+  } else {
+    setBrightness(24);
+  }
+
   char label[MMSS_L];
   //snprintf(buffer, sizeof(buffer), "%.2d:%.2d\n%ld", mm, ss, remaining_ms);
   snprintf(label, sizeof(label), "%.2d:%.2d", mm, ss);
@@ -231,7 +271,6 @@ void timer_tick(Tab * tab) {
   }
 
   //xxxx("posttick");
-
 }
 
 static void tabview_event_cb(lv_event_t * e) {
@@ -296,10 +335,8 @@ static void timer_button_event_cb(lv_event_t * e) {
   
   if (code == LV_EVENT_SINGLE_CLICKED) {
     if ((timer->tt).running) {
-      setBrightness(24);
       tt_stop(&(timer->tt));
     } else {
-      setBrightness(128);
       tt_start(&(timer->tt));
     }
     tab->tick(tab);
@@ -447,15 +484,12 @@ void app() {
   lv_obj_add_event_cb(tabview, tabview_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
   lv_obj_set_size(tabview, lv_pct(100), lv_pct(100));
 
-  Tab * tab0 = &tabs[0];
-  setup_timer_tab(tabview, &tabs[0], "1:00\nTimeout", 60, (const int[]) {55, 20, -1});
-  setup_timer_tab(tabview, &tabs[1], "3:00\nBetween\nSets", 180, (const int[]) {65, 35, 5, -1});
-  setup_timer_tab(tabview, &tabs[2], "4/4/2\nWarmup", 10 * 60, (const int[]) {20, 120 + 20, 360 + 20, -1});
-  setup_timer_tab(tabview, &tabs[3], "4/4/4/4\nWarmup", 20 * 60, (const int[]) {20, 4*60 + 20, 8*60 + 20, 12*60 + 20, 16*60 + 20, -1});
-
-  printf("tab0 running: %d\n", ((Timer *) tab0->tab_data)->tt.running);
-  printf("foo!\n");
-  fflush(stdout);
+  // Tab * tab0 = &tabs[0];
+  setup_timer_tab(tabview, &tabs[0], "0:06\nTest", 6, (const int[]) {3, -1});
+  setup_timer_tab(tabview, &tabs[1], "1:00\nTimeout", 60, (const int[]) {20, -1});
+  setup_timer_tab(tabview, &tabs[2], "3:00\nBetween\nSets", 180, (const int[]) {65, 35, 5, -1});
+  setup_timer_tab(tabview, &tabs[3], "4/4/2\nWarmup", 10 * 60, (const int[]) {20, 120 + 20, 360 + 20, -1});
+  setup_timer_tab(tabview, &tabs[4], "4/4/4/4\nWarmup", 20 * 60, (const int[]) {20, 4*60 + 20, 8*60 + 20, 12*60 + 20, 16*60 + 20, -1});
 
   xxxx("pre-tick");
   tabs[0].tick(&tabs[0]);

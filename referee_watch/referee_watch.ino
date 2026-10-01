@@ -7,6 +7,7 @@
 #include "lv_conf.h"
 #include "HWCDC.h"
 #include "app.h"
+
 #include "globals.h"
 
 HWCDC USBSerial;
@@ -20,6 +21,10 @@ lv_obj_t *uptime_label;
 bool lvgl_ready = false;
 bool touch_ready = false;
 uint32_t last_uptime_update;
+
+#if AUDIO
+I2SClass i2s;
+#endif
 
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
 Arduino_GFX *gfx = new Arduino_CO5300(bus, LCD_RESET, 0, LCD_WIDTH, LCD_HEIGHT, 22, 0, 0, 0);
@@ -109,6 +114,41 @@ void setup() {
     if (indev) { lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER); lv_indev_set_read_cb(indev, my_touchpad_read); }
     else { touch_ready = false; USBSerial.println("LVGL touch input creation failed; continuing without touch."); }
   }
+
+  //pinMode(I2C_SDA, INPUT_PULLUP);
+  //pinMode(I2C_SCL, INPUT_PULLUP);
+  //delay(100);
+
+  //Wire.begin(I2C_SDA, I2C_SCL, 100000);   // safe speed
+  //delay(500);
+  //scanI2C();                    // expect 0x18 (the codec)
+  // If your es8311 files install the ESP-IDF I2C driver themselves
+  // and you get an I2C driver conflict, uncomment:
+  //Wire.end();
+
+#if AUDIO
+
+  i2s.setPins(I2S_BCLK, I2S_LRCK, I2S_DOUT, I2S_DIN, I2S_MCLK);
+  if (!i2s.begin(I2S_MODE_STD, SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT,
+                 I2S_SLOT_MODE_STEREO, I2S_STD_SLOT_BOTH)) {
+    USBSerial.println("I2S init failed");
+    while (1) delay(1000);
+  }
+
+  es8311_handle_t es = es8311_create(I2C_NUM_0, ES8311_ADDRRES_0);
+  const es8311_clock_config_t clk = {
+    .mclk_inverted = false,
+    .sclk_inverted = false,
+    .mclk_from_mclk_pin = true,
+    .mclk_frequency = SAMPLE_RATE * 256,
+    .sample_frequency = SAMPLE_RATE
+  };
+  esp_err_t err = es8311_init(es, &clk, ES8311_RESOLUTION_16, ES8311_RESOLUTION_16);
+  USBSerial.printf("es8311_init: %d (0 = OK)\n", err);
+  es8311_voice_volume_set(es, 100, NULL);   // was 70
+  es8311_microphone_config(es, false);
+
+#endif
 
   app();
 
