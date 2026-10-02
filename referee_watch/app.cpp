@@ -6,7 +6,6 @@
 #include <time.h>
 
 
-
 #ifdef ARDUINO
 #include <Arduino.h>
 #include <lvgl.h>
@@ -78,11 +77,14 @@ void beep_off() {
   fflush(stdout);
 }
 
+void setBrightness(int i) {
+  (void) i;
+}
+
 #endif
 
-LV_FONT_DECLARE(montserrat_96);
-LV_FONT_DECLARE(IBMPlexMonoBold_96);
-LV_FONT_DECLARE(IBMPlexMonoBold_60);
+LV_FONT_DECLARE(IBMPlexMonoBold_96)
+LV_FONT_DECLARE(IBMPlexMonoBold_60)
 
 typedef struct TT_s TT;
 
@@ -152,6 +154,9 @@ void tt_dump (TT * tt, char * s) {
   printf ("TT dump: %s, running = %d, start_value = %ld, accumulated = %ld, started = %ld\n",
      s, tt->running, tt->start_value, tt->accumulated, tt->started);
   fflush(stdout);
+#else
+  (void) tt;
+  (void) s;
 #endif
 }
 
@@ -210,6 +215,8 @@ void xxxx(char * c) {
   for (int i = 0; i < 4; i++) {
     printf("%s: tab %d name = '%s'\n", c, i, tabs[i].name);
   }
+#else
+  (void) c;
 #endif
 }
 
@@ -280,13 +287,8 @@ static void timer_button_event_cb(lv_event_t * e) {
       tt_stop(&(timer_tab_data->tt));
     } else {
       TT_TYPE remaining = tt_remaining(&(timer_tab_data->tt));
-      printf("time remaining = %lld\n", remaining);
       if (!remaining) {
-        printf("reset1: %lld\n", tt_remaining(&(timer_tab_data->tt)));
         tt_reset(&(timer_tab_data->tt));
-        printf("reset2: %lld\n", tt_remaining(&(timer_tab_data->tt)));
-      } else {
-        printf("resetx: non-zero remaining\n");
       }
       tt_start(&(timer_tab_data->tt));
     }
@@ -341,8 +343,8 @@ void my_timer_cb(lv_timer_t * timer) {
 
 void beep_timer_cb(lv_timer_t * timer) {
   (void) timer;
-  if (number_of_beeps > 0) {
 #if AUDIO
+  if (number_of_beeps > 0) {
     static int16_t buf[256 * 2];
     static float phase = 0;
     size_t written;
@@ -372,11 +374,11 @@ void beep_timer_cb(lv_timer_t * timer) {
       written += i2s.write((uint8_t *)buf, sizeof(buf));
     }
     // printf("wrote %u bytes\n", (unsigned)written);
-#endif
     number_of_beeps--;
   } else {
     disableAmp();
   }
+#endif
 }
 
 void timer_tab_tick(Tab * tab) {
@@ -419,9 +421,6 @@ void timer_tab_tick(Tab * tab) {
 
   //xxxx("posttick");
 }
-
-
-
 
 void setup_timer_tab (lv_obj_t * tabview, Tab * tab, char * title, int start_seconds, const int * beep_points) {
   lv_obj_t * lv_tabview_tab = lv_tabview_add_tab(tabview, title);
@@ -517,7 +516,8 @@ struct MiscTabData_s {
 
 void misc_tab_tick(Tab * tab) {
   MiscTabData * misc_tab_data = (MiscTabData *) (tab -> tab_data);
-
+ 
+#ifdef ARDUINO
   if (rtc_ready) {
     RTC_DateTime datetime = rtc.getDateTime();
     char text[TOD_LABEL_L];
@@ -528,6 +528,10 @@ void misc_tab_tick(Tab * tab) {
       memcpy(&misc_tab_data->last_tod_text, text, TOD_LABEL_L);
     }
   }
+#else
+  (void) misc_tab_data;
+#endif
+
 }
 
 void setup_misc_tab (lv_obj_t * tabview, Tab * tab) {
@@ -542,7 +546,8 @@ void setup_misc_tab (lv_obj_t * tabview, Tab * tab) {
   MiscTabData * misc_tab_data = (MiscTabData *) tab->tab_data;
 
   misc_tab_data->time_label = lv_label_create(lv_tabview_tab);
-  lv_label_set_text(misc_tab_data->time_label, " hh:mm:ss \nyyyy-mm-dd");
+  lv_obj_set_style_text_line_space(misc_tab_data->time_label, 30, 0); 
+  lv_label_set_text(misc_tab_data->time_label, " 00:00:00 \n0000-00-00");
   lv_obj_align(misc_tab_data->time_label, LV_ALIGN_CENTER, 0, -50);
   lv_obj_set_style_text_font(misc_tab_data->time_label, &IBMPlexMonoBold_60, 0);
   lv_obj_set_style_text_color(misc_tab_data->time_label, lv_color_white(), LV_PART_MAIN | LV_STATE_DEFAULT);
