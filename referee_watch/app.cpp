@@ -5,11 +5,12 @@
 
 #include <time.h>
 
-#define MMSS_L 20
+
 
 #ifdef ARDUINO
 #include <Arduino.h>
 #include <lvgl.h>
+#include "SensorPCF85063.hpp"
 
 #include "globals.h"
 
@@ -79,6 +80,8 @@ void beep_off() {
 
 #endif
 
+LV_FONT_DECLARE(montserrat_96);
+
 typedef struct TT_s TT;
 
 struct TT_s {
@@ -90,7 +93,7 @@ struct TT_s {
 
 typedef struct Tab_s Tab;
 
-typedef struct Timer_s Timer;
+typedef struct TimerTabData_s TimerTabData;
 
 typedef struct TimerBump_s TimerBump;
 
@@ -101,9 +104,9 @@ struct Tab_s {
   void * tab_data;
   TickFunction tick;
 };
-  
 
-struct Timer_s {
+#define TIMER_LABEL_L 20
+struct TimerTabData_s {
   Tab * tab;
 
   TT tt;
@@ -114,13 +117,23 @@ struct Timer_s {
   lv_obj_t * label;
   lv_obj_t * up_button;
   lv_obj_t * down_button;
+
+  char last_mmss_text[TIMER_LABEL_L];
 };
 
 struct TimerBump_s {
-  Timer * timer;
+  TimerTabData * timer_tab_data;
   int inc;
   int consecutive_long_presses;
 };
+
+TimerBump * makeTimerBump(TimerTabData * t, int inc) {
+  TimerBump * rv = (TimerBump *) malloc(sizeof(TimerBump));
+  rv->timer_tab_data = t;
+  rv->inc = inc;
+  rv->consecutive_long_presses = 0;
+  return rv;
+}
 
 void tt_init (TT * tt, TT_TYPE start_value) {
   tt->running = false;
@@ -188,7 +201,7 @@ bool is_i_in_list(int i, const int * lp) {
   }
 }
 
-Tab tabs[5];
+Tab tabs[6];
 
 void xxxx(char * c) {
 #if 0
@@ -199,51 +212,6 @@ void xxxx(char * c) {
 }
 
 uint32_t visible_tab_index = 0;
-
-static char last_label[MMSS_L] = {0};
-
-void timer_update(Tab * tab) {
-  Timer * timer = (Timer *) (tab -> tab_data);
-  TT_TYPE remaining_ms = tt_remaining(&timer->tt);
-
-  //xxxx("pretick");
-  
-  int rs = remaining_ms / 1000;
-  if (remaining_ms > 0 && rs == 0) rs = 1;
-  if (remaining_ms <= 0) rs = 0;
-  
-  int mm = rs / 60;
-  int ss = rs % 60;
-  
-  if (timer->tt.running) {
-    printf("checking %d to see if I should beep... ", rs);
-    bool should_beep = is_i_in_list(rs, timer->beep_points);
-    printf("%s\n", should_beep ? "yep" : "nope");
-    if (should_beep) beep_on();
-  }
-
-  if (rs == 0) {
-    tt_stop(&timer->tt);
-  }
-
-  if (timer->tt.running) {
-    setBrightness(100);
-  } else {
-    setBrightness(40);
-  }
-
-  char label[MMSS_L];
-  //snprintf(buffer, sizeof(buffer), "%.2d:%.2d\n%ld", mm, ss, remaining_ms);
-  snprintf(label, sizeof(label), "%.2d:%.2d", mm, ss);
-
-  // only update if necessary
-  if (strcmp(label, last_label) != 0) {
-    lv_label_set_text(timer->label, label);
-    memcpy(&last_label, label, MMSS_L);
-  }
-
-  //xxxx("posttick");
-}
 
 static void tabview_event_cb(lv_event_t * e) {
   lv_obj_t * tabview = (lv_obj_t *) lv_event_get_target(e);
@@ -301,29 +269,29 @@ static void timer_button_event_cb(lv_event_t * e) {
   }
 
   Tab * tab = (Tab *) lv_event_get_user_data(e);
-  Timer * timer = (Timer *) tab->tab_data;
+  TimerTabData * timer_tab_data = (TimerTabData *) tab->tab_data;
   
   printf("*** Button event: code=%s, tab->name='%s'\n", event_name(code), tab->name);
   
   if (code == LV_EVENT_SINGLE_CLICKED) {
-    if ((timer->tt).running) {
-      tt_stop(&(timer->tt));
+    if ((timer_tab_data->tt).running) {
+      tt_stop(&(timer_tab_data->tt));
     } else {
-      TT_TYPE remaining = tt_remaining(&(timer->tt));
+      TT_TYPE remaining = tt_remaining(&(timer_tab_data->tt));
       printf("time remaining = %lld\n", remaining);
       if (!remaining) {
-        printf("reset1: %lld\n", tt_remaining(&(timer->tt)));
-        tt_reset(&(timer->tt));
-        printf("reset2: %lld\n", tt_remaining(&(timer->tt)));
+        printf("reset1: %lld\n", tt_remaining(&(timer_tab_data->tt)));
+        tt_reset(&(timer_tab_data->tt));
+        printf("reset2: %lld\n", tt_remaining(&(timer_tab_data->tt)));
       } else {
         printf("resetx: non-zero remaining\n");
       }
-      tt_start(&(timer->tt));
+      tt_start(&(timer_tab_data->tt));
     }
     tab->tick(tab);
   } else if (code == LV_EVENT_LONG_PRESSED) {
-    if (!(timer->tt).running) {
-      tt_reset(&(timer->tt));
+    if (!(timer_tab_data->tt).running) {
+      tt_reset(&(timer_tab_data->tt));
     }
     tab->tick(tab);
   }
@@ -337,10 +305,10 @@ static void timer_bump_button_event_cb(lv_event_t * e) {
   }
 
   TimerBump * bump = (TimerBump *) lv_event_get_user_data(e);
-  Timer * timer = bump->timer;
-  Tab * tab = timer->tab;
+  TimerTabData * timer_tab_data = bump->timer_tab_data;
+  Tab * tab = timer_tab_data->tab;
   
-  if (timer->tt.running) return;
+  if (timer_tab_data->tt.running) return;
   // printf("Bump button event: %s, %s %d\n", event_name(code), timer->tab->name, bump->inc);
   
   int amount = bump->inc;
@@ -356,7 +324,7 @@ static void timer_bump_button_event_cb(lv_event_t * e) {
     // printf("Reset: Consecutive = %d, amount = %d\n", bump->consecutive_long_presses, amount);  
   }
   
-  tt_bump(&timer->tt, -(amount * 1000));
+  tt_bump(&timer_tab_data->tt, -(amount * 1000));
   tab->tick(tab);
 }
 
@@ -409,24 +377,63 @@ void beep_timer_cb(lv_timer_t * timer) {
   }
 }
 
-TimerBump * makeTimerBump(Timer * t, int inc) {
-  TimerBump * rv = (TimerBump *) malloc(sizeof(TimerBump));
-  rv->timer = t;
-  rv->inc = inc;
-  rv->consecutive_long_presses = 0;
-  return rv;
+void timer_tab_tick(Tab * tab) {
+  TimerTabData * timer_tab_data = (TimerTabData *) (tab -> tab_data);
+  TT_TYPE remaining_ms = tt_remaining(&timer_tab_data->tt);
+
+  //xxxx("pretick");
+  
+  int rs = remaining_ms / 1000;
+  if (remaining_ms > 0 && rs == 0) rs = 1;
+  if (remaining_ms <= 0) rs = 0;
+  
+  int mm = rs / 60;
+  int ss = rs % 60;
+  
+  if (timer_tab_data->tt.running) {
+    printf("checking %d to see if I should beep... ", rs);
+    bool should_beep = is_i_in_list(rs, timer_tab_data->beep_points);
+    printf("%s\n", should_beep ? "yep" : "nope");
+    if (should_beep) beep_on();
+  }
+
+  if (rs == 0) {
+    tt_stop(&timer_tab_data->tt);
+  }
+
+  if (timer_tab_data->tt.running) {
+    setBrightness(100);
+  } else {
+    setBrightness(40);
+  }
+
+  char label[TIMER_LABEL_L];
+  snprintf(label, sizeof(label), "%.2d:%.2d", mm, ss);
+  // only update if necessary
+  if (strcmp(label, timer_tab_data->last_mmss_text) != 0) {
+    lv_label_set_text(timer_tab_data->label, label);
+    memcpy(&timer_tab_data->last_mmss_text, label, TIMER_LABEL_L);
+  }
+
+  //xxxx("posttick");
 }
+
+
+
 
 void setup_timer_tab (lv_obj_t * tabview, Tab * tab, char * title, int start_seconds, const int * beep_points) {
   lv_obj_t * lv_tabview_tab = lv_tabview_add_tab(tabview, title);
+  lv_obj_set_style_bg_color(lv_tabview_tab, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(lv_tabview_tab, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
   
-  tab->tick = timer_update;
+  tab->tick = timer_tab_tick;
   tab->name = title;
   
-  tab->tab_data = malloc(sizeof(Timer));
-  Timer * timer = (Timer *) tab->tab_data;
+  tab->tab_data = malloc(sizeof(TimerTabData));
+  TimerTabData * timer_tab_data = (TimerTabData *) tab->tab_data;
 
-  timer->tab = tab;
+  timer_tab_data->tab = tab;
+  timer_tab_data->last_mmss_text[0] = 0;
 
   // need to make a copy of beep_points because the (const int[]) from the caller
   // can go out of scope and the contents become invalid
@@ -437,15 +444,15 @@ void setup_timer_tab (lv_obj_t * tabview, Tab * tab, char * title, int start_sec
     } while (beep_points[l_index++] != -1);
     // printf("Beep point count %d\n", l_index);
     
-    timer -> beep_points = (int *) malloc(l_index * sizeof(int));
-    memcpy(timer->beep_points, beep_points, l_index*sizeof(int));
+    timer_tab_data -> beep_points = (int *) malloc(l_index * sizeof(int));
+    memcpy(timer_tab_data->beep_points, beep_points, l_index*sizeof(int));
     
     // fflush(stdout);
   }
   
 #if 0
   {
-    const int * bb = timer->beep_points;
+    const int * bb = timer_tab_data->beep_points;
     int l_index = 0;
     do {
       printf("Beep point* %d\n", bb[l_index]);
@@ -454,63 +461,124 @@ void setup_timer_tab (lv_obj_t * tabview, Tab * tab, char * title, int start_sec
   }
 #endif
   
-  tt_init(&(timer->tt), start_seconds * 1000);
+  tt_init(&(timer_tab_data->tt), start_seconds * 1000);
 
-  timer->button = lv_btn_create(lv_tabview_tab);
-  lv_obj_set_align(timer->button, LV_ALIGN_CENTER);
-  lv_obj_set_size(timer->button, lv_pct(100), lv_pct(50));
-  lv_obj_add_event_cb(timer->button, timer_button_event_cb, LV_EVENT_LONG_PRESSED, tab);
-  lv_obj_add_event_cb(timer->button, timer_button_event_cb, LV_EVENT_SINGLE_CLICKED, tab);
+  timer_tab_data->button = lv_btn_create(lv_tabview_tab);
+  lv_obj_set_align(timer_tab_data->button, LV_ALIGN_CENTER);
+  lv_obj_set_size(timer_tab_data->button, lv_pct(100), lv_pct(50));
+  lv_obj_add_event_cb(timer_tab_data->button, timer_button_event_cb, LV_EVENT_LONG_PRESSED, tab);
+  lv_obj_add_event_cb(timer_tab_data->button, timer_button_event_cb, LV_EVENT_SINGLE_CLICKED, tab);
 
-  timer->label = lv_label_create(timer->button);
-  lv_label_set_text(timer->label, title);
-  lv_obj_set_align(timer->label, LV_ALIGN_CENTER);
-  lv_obj_set_style_text_font(timer->label, &lv_font_montserrat_48, 0);
+  timer_tab_data->label = lv_label_create(timer_tab_data->button);
+  lv_label_set_text(timer_tab_data->label, title);
+  lv_obj_set_align(timer_tab_data->label, LV_ALIGN_CENTER);
+  lv_obj_set_style_text_font(timer_tab_data->label, &montserrat_96, 0);
 
   lv_obj_t * label;
 
   TimerBump * bump;
     
-  timer->up_button = lv_btn_create(lv_tabview_tab);
-  lv_obj_set_align(timer->up_button, LV_ALIGN_TOP_MID);
-  lv_obj_set_size(timer->up_button, lv_pct(100), lv_pct(20));
-  bump = makeTimerBump(timer, +10);
-  lv_obj_add_event_cb(timer->up_button, timer_bump_button_event_cb, LV_EVENT_CLICKED, bump);
-  lv_obj_add_event_cb(timer->up_button, timer_bump_button_event_cb, LV_EVENT_LONG_PRESSED, bump);
-  lv_obj_add_event_cb(timer->up_button, timer_bump_button_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, bump);
-  label = lv_label_create(timer->up_button);          /*Add a label to the button*/
+  timer_tab_data->up_button = lv_btn_create(lv_tabview_tab);
+  lv_obj_set_align(timer_tab_data->up_button, LV_ALIGN_TOP_MID);
+  lv_obj_set_size(timer_tab_data->up_button, lv_pct(100), lv_pct(20));
+  bump = makeTimerBump(timer_tab_data, +10);
+  lv_obj_add_event_cb(timer_tab_data->up_button, timer_bump_button_event_cb, LV_EVENT_CLICKED, bump);
+  lv_obj_add_event_cb(timer_tab_data->up_button, timer_bump_button_event_cb, LV_EVENT_LONG_PRESSED, bump);
+  lv_obj_add_event_cb(timer_tab_data->up_button, timer_bump_button_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, bump);
+  label = lv_label_create(timer_tab_data->up_button);          /*Add a label to the button*/
   lv_label_set_text(label, LV_SYMBOL_UP);                     /*Set the labels text*/
   lv_obj_set_style_text_font(label, &lv_font_montserrat_48, 0);
   lv_obj_center(label);
 
-  timer->down_button = lv_btn_create(lv_tabview_tab);
-  lv_obj_set_align(timer->down_button, LV_ALIGN_BOTTOM_MID);
-  lv_obj_set_size(timer->down_button, lv_pct(100), lv_pct(20));
-  bump = makeTimerBump(timer, -10);
-  lv_obj_add_event_cb(timer->down_button, timer_bump_button_event_cb, LV_EVENT_CLICKED, bump);
-  lv_obj_add_event_cb(timer->down_button, timer_bump_button_event_cb, LV_EVENT_LONG_PRESSED, bump);
-  lv_obj_add_event_cb(timer->down_button, timer_bump_button_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, bump);
-  label = lv_label_create(timer->down_button);          /*Add a label to the button*/
+  timer_tab_data->down_button = lv_btn_create(lv_tabview_tab);
+  lv_obj_set_align(timer_tab_data->down_button, LV_ALIGN_BOTTOM_MID);
+  lv_obj_set_size(timer_tab_data->down_button, lv_pct(100), lv_pct(20));
+  bump = makeTimerBump(timer_tab_data, -10);
+  lv_obj_add_event_cb(timer_tab_data->down_button, timer_bump_button_event_cb, LV_EVENT_CLICKED, bump);
+  lv_obj_add_event_cb(timer_tab_data->down_button, timer_bump_button_event_cb, LV_EVENT_LONG_PRESSED, bump);
+  lv_obj_add_event_cb(timer_tab_data->down_button, timer_bump_button_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, bump);
+  label = lv_label_create(timer_tab_data->down_button);          /*Add a label to the button*/
   lv_label_set_text(label, LV_SYMBOL_DOWN);                     /*Set the labels text*/
   lv_obj_set_style_text_font(label, &lv_font_montserrat_48, 0);
   lv_obj_center(label);
 
 }
 
+typedef struct MiscTabData_s MiscTabData;
+
+#define TOD_LABEL_L 40
+struct MiscTabData_s {
+  lv_obj_t * time_label;
+  lv_obj_t * battery_label;
+  char last_tod_text[TOD_LABEL_L];
+};
+
+void misc_tab_tick(Tab * tab) {
+  MiscTabData * misc_tab_data = (MiscTabData *) (tab -> tab_data);
+
+  if (rtc_ready) {
+    RTC_DateTime datetime = rtc.getDateTime();
+    char text[TOD_LABEL_L];
+    snprintf(text, sizeof(text), "%02d:%02d:%02d\n%04d-%02d-%02d", datetime.getHour(), datetime.getMinute(), datetime.getSecond(), datetime.getYear(), datetime.getMonth(), datetime.getDay());
+    // only update if necessary
+    if (strcmp(text, misc_tab_data->last_tod_text) != 0) {
+      lv_label_set_text(misc_tab_data->time_label, text);
+      memcpy(&misc_tab_data->last_tod_text, text, TOD_LABEL_L);
+    }
+  }
+}
+
+void setup_misc_tab (lv_obj_t * tabview, Tab * tab) {
+  lv_obj_t * lv_tabview_tab = lv_tabview_add_tab(tabview, "Time");
+  lv_obj_set_style_bg_color(lv_tabview_tab, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(lv_tabview_tab, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+  
+  tab->tick = misc_tab_tick;
+  tab->name = "Time";
+
+  tab->tab_data = malloc(sizeof(MiscTabData));
+  MiscTabData * misc_tab_data = (MiscTabData *) tab->tab_data;
+
+  misc_tab_data->time_label = lv_label_create(lv_tabview_tab);
+  lv_label_set_text(misc_tab_data->time_label, "hh:mm");
+  lv_obj_set_align(misc_tab_data->time_label, LV_ALIGN_CENTER);
+  lv_obj_set_style_text_font(misc_tab_data->time_label, &lv_font_montserrat_48, 0);
+  lv_obj_set_style_text_color(misc_tab_data->time_label, lv_color_white(), LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  misc_tab_data->last_tod_text[0] = 0;
+}
+
 void app() {
   lv_obj_t * screen = lv_screen_active();
+  lv_obj_set_style_pad_all(screen, 0, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(screen, lv_color_hex(0xFF0000), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+ 
+  lv_obj_t * top = lv_obj_create(screen);
+  lv_obj_set_style_pad_all(top, 0, LV_PART_MAIN);
+  lv_obj_set_size(top, lv_pct(100), lv_pct(15));
+  lv_obj_set_align(top, LV_ALIGN_TOP_MID);
+  lv_obj_set_style_bg_color(top, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(top, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+  lv_obj_t * bottom = lv_obj_create(screen);
+  lv_obj_set_style_pad_all(bottom, 0, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(bottom, lv_color_hex(0x00FF00), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_size(bottom, lv_pct(100), lv_pct(85));
+  lv_obj_set_align(bottom, LV_ALIGN_BOTTOM_MID);
 
   /* 💡 Tap a tab button or swipe horizontally to switch tabs. */
-  lv_obj_t * tabview = lv_tabview_create(screen);
+  lv_obj_t * tabview = lv_tabview_create(bottom);
+  lv_obj_set_style_bg_color(bottom, lv_color_hex(0x0000FF), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_add_event_cb(tabview, tabview_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
   lv_obj_set_size(tabview, lv_pct(100), lv_pct(100));
 
-  // Tab * tab0 = &tabs[0];
-  setup_timer_tab(tabview, &tabs[0], "0:06\nTest", 6, (const int[]) {3, -1});
+  setup_misc_tab(tabview, &tabs[0]);
   setup_timer_tab(tabview, &tabs[1], "1:00\nTimeout", 60, (const int[]) {20, 5, -1});
   setup_timer_tab(tabview, &tabs[2], "3:00\nBetween\nSets", 180, (const int[]) {65, 35, 5, -1});
   setup_timer_tab(tabview, &tabs[3], "4/4/2\nWarmup", 10 * 60, (const int[]) {20, 2*60 + 20, 6*60 + 20, -1});
-  setup_timer_tab(tabview, &tabs[4], "4/4/4/4\nWarmup", 20 * 60, (const int[]) {20, 4*60 + 20, 8*60 + 20, 12*60 + 20, 16*60 + 20, -1});
+  setup_timer_tab(tabview, &tabs[4], "4/4/4/4\nWarmup", 20 * 60, (const int[]) {20, 2*60 + 5, 4*60 + 20, 8*60 + 20, 12*60 + 20, 16*60 + 20, -1});
+  setup_timer_tab(tabview, &tabs[5], "0:06\nTest", 6, (const int[]) {3, -1});
 
   xxxx("pre-tick");
   tabs[0].tick(&tabs[0]);

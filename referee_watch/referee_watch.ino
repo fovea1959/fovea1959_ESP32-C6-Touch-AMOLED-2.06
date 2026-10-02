@@ -4,6 +4,7 @@
 #include <lvgl.h>
 #include "Arduino_GFX_Library.h"
 #include "Arduino_DriveBus_Library.h"
+#include "SensorPCF85063.hpp"
 #include "lv_conf.h"
 #include "HWCDC.h"
 #include "app.h"
@@ -11,33 +12,43 @@
 #include "globals.h"
 
 HWCDC USBSerial;
+
 static constexpr uint32_t LVGL_BUFFER_LINES = 20;
 uint32_t screenWidth;
 uint32_t screenHeight;
 size_t draw_buffer_bytes;
 lv_display_t *disp;
 uint8_t *disp_draw_buf;
-lv_obj_t *uptime_label;
+
 bool lvgl_ready = false;
 bool touch_ready = false;
-uint32_t last_uptime_update;
+bool rtc_ready = false;
 
 #if AUDIO
 I2SClass i2s;
 #endif
 
+SensorPCF85063 rtc;
+
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
+
 Arduino_GFX *gfx = new Arduino_CO5300(bus, LCD_RESET, 0, LCD_WIDTH, LCD_HEIGHT, 22, 0, 0, 0);
+
 std::shared_ptr<Arduino_IIC_DriveBus> IIC_Bus = std::make_shared<Arduino_HWIIC>(IIC_SDA, IIC_SCL, &Wire);
+
 void Arduino_IIC_Touch_Interrupt(void);
+
 std::unique_ptr<Arduino_IIC> FT3168(new Arduino_FT3x68(IIC_Bus, FT3168_DEVICE_ADDRESS, DRIVEBUS_DEFAULT_VALUE, TP_INT, Arduino_IIC_Touch_Interrupt));
 
 void Arduino_IIC_Touch_Interrupt(void) { if (FT3168) FT3168->IIC_Interrupt_Flag = true; }
+
 uint32_t millis_cb(void) { return millis(); }
+
 void my_disp_flush(lv_display_t *display, const lv_area_t *area, uint8_t *px_map) {
   if (gfx && area && px_map) gfx->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t *)px_map, lv_area_get_width(area), lv_area_get_height(area));
   lv_disp_flush_ready(display);
 }
+
 void my_touchpad_read(lv_indev_t *indev, lv_indev_data_t *data) {
   LV_UNUSED(indev);
   data->state = LV_INDEV_STATE_REL;
@@ -57,19 +68,6 @@ void rounder_event_cb(lv_event_t *e) {
   area->x2 = (int32_t)screenWidth - 1;
   area->y1 = y1 < 0 ? 0 : y1;
   area->y2 = y2 >= (int32_t)screenHeight ? (int32_t)screenHeight - 1 : y2;
-}
-
-static void btn_event_cb(lv_event_t * e) {
-    lv_event_code_t code = lv_event_get_code(e);
-    lv_obj_t * btn = lv_event_get_target_obj(e);
-    
-    if(code == LV_EVENT_CLICKED) {
-        static uint8_t btn_cnt = 0;
-        btn_cnt++;
-        /* Get the first child of the button (the label) and change its text */
-        lv_obj_t * label = lv_obj_get_child(btn, 0);
-        lv_label_set_text_fmt(label, "Button: %d", btn_cnt);
-    }
 }
 
 void setup() {
@@ -115,17 +113,6 @@ void setup() {
     else { touch_ready = false; USBSerial.println("LVGL touch input creation failed; continuing without touch."); }
   }
 
-  //pinMode(I2C_SDA, INPUT_PULLUP);
-  //pinMode(I2C_SCL, INPUT_PULLUP);
-  //delay(100);
-
-  //Wire.begin(I2C_SDA, I2C_SCL, 100000);   // safe speed
-  //delay(500);
-  //scanI2C();                    // expect 0x18 (the codec)
-  // If your es8311 files install the ESP-IDF I2C driver themselves
-  // and you get an I2C driver conflict, uncomment:
-  //Wire.end();
-
 #if AUDIO
 
   i2s.setPins(I2S_BCLK, I2S_LRCK, I2S_DOUT, I2S_DIN, I2S_MCLK);
@@ -150,29 +137,15 @@ void setup() {
 
 #endif
 
+  rtc_ready = rtc.begin(Wire, IIC_SDA, IIC_SCL);
+  if (!rtc_ready) {
+    USBSerial.println("RTC unavailable; continuing without clock updates.");
+  } else {
+    RTC_DateTime datetime = RTC_DateTime(2026, 10, 1, 15, 35, 00);
+    // rtc.setDateTime(datetime);
+  }
+
   app();
-
-#if 0
-  lv_obj_t *title = lv_label_create(lv_scr_act());
-  uptime_label = lv_label_create(lv_scr_act());
-  lv_obj_t * btn = lv_button_create(lv_screen_active());
-  if (!title || !uptime_label || !btn) { USBSerial.println("LVGL object creation failed; LVGL disabled."); return; }
-
-  lv_label_set_text(title, "LVGL status");
-  lv_obj_align(title, LV_ALIGN_CENTER, 0, -20);
-
-  lv_label_set_text(uptime_label, "Uptime: 0 s");
-  lv_obj_align(uptime_label, LV_ALIGN_CENTER, 0, 20);
-
-  lv_obj_set_size(btn, 120, 50);
-  lv_obj_align(btn, LV_ALIGN_CENTER, 0, 100);
-  /* Add an event callback to the button */
-  lv_obj_add_event_cb(btn, btn_event_cb, LV_EVENT_ALL, NULL);
-  /* Create a label inside the button */
-  lv_obj_t * label = lv_label_create(btn);
-  lv_label_set_text(label, "Button");
-  lv_obj_center(label);
-#endif
 
   lvgl_ready = true;
   USBSerial.println("**** Setup done ****");
@@ -181,12 +154,5 @@ void setup() {
 void loop() {
   if (!lvgl_ready) { delay(1000); return; }
   lv_task_handler();
-  if (uptime_label && millis() - last_uptime_update >= 1000) {
-    last_uptime_update = millis();
-    char text[32];
-    snprintf(text, sizeof(text), "Uptime: %lu s", (unsigned long)(last_uptime_update / 1000));
-    lv_label_set_text(uptime_label, text);
-
-  }
   delay(5);
 }
