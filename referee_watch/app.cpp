@@ -81,6 +81,8 @@ void beep_off() {
 #endif
 
 LV_FONT_DECLARE(montserrat_96);
+LV_FONT_DECLARE(IBMPlexMonoBold_96);
+LV_FONT_DECLARE(IBMPlexMonoBold_60);
 
 typedef struct TT_s TT;
 
@@ -472,10 +474,10 @@ void setup_timer_tab (lv_obj_t * tabview, Tab * tab, char * title, int start_sec
   timer_tab_data->label = lv_label_create(timer_tab_data->button);
   lv_label_set_text(timer_tab_data->label, title);
   lv_obj_set_align(timer_tab_data->label, LV_ALIGN_CENTER);
-  lv_obj_set_style_text_font(timer_tab_data->label, &montserrat_96, 0);
+// lv_obj_set_style_text_font(timer_tab_data->label, &montserrat_96, 0);
+  lv_obj_set_style_text_font(timer_tab_data->label, &IBMPlexMonoBold_96, 0);
 
   lv_obj_t * label;
-
   TimerBump * bump;
     
   timer_tab_data->up_button = lv_btn_create(lv_tabview_tab);
@@ -519,7 +521,7 @@ void misc_tab_tick(Tab * tab) {
   if (rtc_ready) {
     RTC_DateTime datetime = rtc.getDateTime();
     char text[TOD_LABEL_L];
-    snprintf(text, sizeof(text), "%02d:%02d:%02d\n%04d-%02d-%02d", datetime.getHour(), datetime.getMinute(), datetime.getSecond(), datetime.getYear(), datetime.getMonth(), datetime.getDay());
+    snprintf(text, sizeof(text), " %02d:%02d:%02d \n%04d-%02d-%02d", datetime.getHour(), datetime.getMinute(), datetime.getSecond(), datetime.getYear(), datetime.getMonth(), datetime.getDay());
     // only update if necessary
     if (strcmp(text, misc_tab_data->last_tod_text) != 0) {
       lv_label_set_text(misc_tab_data->time_label, text);
@@ -540,9 +542,9 @@ void setup_misc_tab (lv_obj_t * tabview, Tab * tab) {
   MiscTabData * misc_tab_data = (MiscTabData *) tab->tab_data;
 
   misc_tab_data->time_label = lv_label_create(lv_tabview_tab);
-  lv_label_set_text(misc_tab_data->time_label, "hh:mm");
-  lv_obj_set_align(misc_tab_data->time_label, LV_ALIGN_CENTER);
-  lv_obj_set_style_text_font(misc_tab_data->time_label, &lv_font_montserrat_48, 0);
+  lv_label_set_text(misc_tab_data->time_label, " hh:mm:ss \nyyyy-mm-dd");
+  lv_obj_align(misc_tab_data->time_label, LV_ALIGN_CENTER, 0, -50);
+  lv_obj_set_style_text_font(misc_tab_data->time_label, &IBMPlexMonoBold_60, 0);
   lv_obj_set_style_text_color(misc_tab_data->time_label, lv_color_white(), LV_PART_MAIN | LV_STATE_DEFAULT);
 
   misc_tab_data->last_tod_text[0] = 0;
@@ -550,19 +552,20 @@ void setup_misc_tab (lv_obj_t * tabview, Tab * tab) {
 
 void app() {
   lv_obj_t * screen = lv_screen_active();
-  lv_obj_set_style_pad_all(screen, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(screen, 0, LV_PART_MAIN);    // doesn't seem to help
   lv_obj_set_style_bg_color(screen, lv_color_hex(0xFF0000), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_border_width(screen, 0, LV_PART_MAIN);
  
   lv_obj_t * top = lv_obj_create(screen);
-  lv_obj_set_style_pad_all(top, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(top, 0, LV_PART_MAIN);       // doesn't seem to help
   lv_obj_set_size(top, lv_pct(100), lv_pct(15));
   lv_obj_set_align(top, LV_ALIGN_TOP_MID);
   lv_obj_set_style_bg_color(top, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_opa(top, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
 
   lv_obj_t * bottom = lv_obj_create(screen);
-  lv_obj_set_style_pad_all(bottom, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(bottom, 0, LV_PART_MAIN);    // doesn't seem to help
   lv_obj_set_style_bg_color(bottom, lv_color_hex(0x00FF00), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_size(bottom, lv_pct(100), lv_pct(85));
   lv_obj_set_align(bottom, LV_ALIGN_BOTTOM_MID);
