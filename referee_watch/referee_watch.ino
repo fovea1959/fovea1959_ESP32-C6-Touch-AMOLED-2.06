@@ -30,6 +30,8 @@ I2SClass i2s;
 
 SensorPCF85063 rtc;
 
+const uint8_t BUTTON_PIN = 18;
+
 Arduino_DataBus *bus = new Arduino_ESP32QSPI(LCD_CS, LCD_SCLK, LCD_SDIO0, LCD_SDIO1, LCD_SDIO2, LCD_SDIO3);
 
 Arduino_GFX *gfx = new Arduino_CO5300(bus, LCD_RESET, 0, LCD_WIDTH, LCD_HEIGHT, 22, 0, 0, 0);
@@ -69,6 +71,17 @@ void rounder_event_cb(lv_event_t *e) {
   area->y1 = y1 < 0 ? 0 : y1;
   area->y2 = y2 >= (int32_t)screenHeight ? (int32_t)screenHeight - 1 : y2;
 }
+
+// Use 'volatile' for variables shared between the ISR and main loop
+volatile bool interruptOccurred = false;
+volatile uint32_t pressCounter = 0;
+
+// Interrupt Service Routine (ISR)
+// ARDUINO_ISR_ATTR (or IRAM_ATTR) forces the compiler to run this code from internal RAM for speed
+void ARDUINO_ISR_ATTR handleButtonPress() {
+    pressCounter++;
+    interruptOccurred = true; 
+} 
 
 void setup() {
 #ifdef DEV_DEVICE_INIT
@@ -145,6 +158,13 @@ void setup() {
     // rtc.setDateTime(datetime);
   }
 
+  // Configure pin as input with internal pull-up resistor
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+    
+  // Attach the interrupt to the pin
+  attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), handleButtonPress, FALLING);
+
+
   app();
 
   lvgl_ready = true;
@@ -152,6 +172,13 @@ void setup() {
 }
 
 void loop() {
+  if (interruptOccurred) {
+    USBSerial.print("Interrupt triggered! Total count: ");
+    USBSerial.println(pressCounter);
+        
+    // Reset the flag
+    interruptOccurred = false;
+  }
   if (!lvgl_ready) { delay(1000); return; }
   lv_task_handler();
   delay(5);
