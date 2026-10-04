@@ -92,7 +92,7 @@ void setBrightness(int i) {
 
 #endif
 
-#define OFF 40
+#define OFF 10
 #define DIM 40
 #define BRIGHT 100
 
@@ -120,6 +120,7 @@ struct Tab_s {
   char * name;
   void * tab_data;
   TickFunction tick;
+  bool ok_to_turn_off_display;
 };
 
 #define TIMER_LABEL_L 20
@@ -366,13 +367,16 @@ void timer_tab_tick(Tab * tab) {
   }
 
   if (rs == 0) {
+    if (timer_tab_data->tt.running) {
+      lv_display_trigger_activity(NULL);
+    }
     tt_stop(&timer_tab_data->tt);
   }
 
   if (timer_tab_data->tt.running) {
-    setBrightness(BRIGHT);
+    tab->ok_to_turn_off_display = false;
   } else {
-    setBrightness(DIM);
+    tab->ok_to_turn_off_display = true;
   }
 
   char label[TIMER_LABEL_L];
@@ -393,9 +397,9 @@ void setup_timer_tab (lv_obj_t * tabview, Tab * tab, char * title, int start_sec
   
   tab->tick = timer_tab_tick;
   tab->name = title;
-  
   tab->tab_data = malloc(sizeof(TimerTabData));
   TimerTabData * timer_tab_data = (TimerTabData *) tab->tab_data;
+  tab->ok_to_turn_off_display = true;
 
   timer_tab_data->tab = tab;
   timer_tab_data->last_mmss_text[0] = 0;
@@ -522,9 +526,9 @@ void setup_misc_tab (lv_obj_t * tabview, Tab * tab, lv_obj_t * top) {
   
   tab->tick = misc_tab_tick;
   tab->name = "Time";
-
   tab->tab_data = malloc(sizeof(MiscTabData));
   MiscTabData * misc_tab_data = (MiscTabData *) tab->tab_data;
+  tab->ok_to_turn_off_display = true;
 
   lv_obj_t * obj;
 
@@ -559,8 +563,14 @@ void my_timer_cb(lv_timer_t * timer) {
 
   if (inactive < 5000) {
     setBrightness(BRIGHT);
-  } else {
+  } else if (inactive < 15000) {
     setBrightness(DIM);
+  } else {
+    if (visibleTab.ok_to_turn_off_display) {
+      setBrightness(OFF);
+    } else {
+      setBrightness(DIM);
+    }
   }
 }
 

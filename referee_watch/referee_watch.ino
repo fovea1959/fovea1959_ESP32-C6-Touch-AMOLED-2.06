@@ -76,12 +76,10 @@ void rounder_event_cb(lv_event_t *e) {
 
 // Use 'volatile' for variables shared between the ISR and main loop
 volatile bool interruptOccurred = false;
-volatile uint32_t pressCounter = 0;
 
 // Interrupt Service Routine (ISR)
 // ARDUINO_ISR_ATTR (or IRAM_ATTR) forces the compiler to run this code from internal RAM for speed
 void ARDUINO_ISR_ATTR handleButtonPress() {
-    pressCounter++;
     interruptOccurred = true; 
 } 
 
@@ -205,9 +203,8 @@ void loop() {
   if (!lvgl_ready) { delay(1000); return; }
 
   if (interruptOccurred) {
-    USBSerial.print("Interrupt triggered! Total count: ");
-    USBSerial.println(pressCounter);
-        
+    lv_display_trigger_activity(NULL);
+
     // Reset the flag
     interruptOccurred = false;
   }
