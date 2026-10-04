@@ -1,3 +1,12 @@
+/*
+
+Arduino IDE tools settings:
+
+CPU freq: 40 Mhz (trying to save battery)
+Flash size: 16 MB (128 Mb)
+Partition Scheme: 16 M Flash (3MB APP / 9.9 MB FATFS)
+*/
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
@@ -5,13 +14,13 @@
 
 #include <time.h>
 
+int number_of_beeps = 0;
 
-#ifdef ARDUINO
+#if ARDUINO
 #include <Arduino.h>
 #include <lvgl.h>
-#include "SensorPCF85063.hpp"
-
 #include "globals.h"
+#include "HWCDC.h"
 
 #define TT_TYPE int64_t
 
@@ -23,7 +32,6 @@ TT_TYPE get_time_millis() {
   return millis();
 }
 
-#if AUDIO
 void enableAmp() {
   pinMode(PA_PIN, OUTPUT);
   digitalWrite(PA_PIN, HIGH);
@@ -33,9 +41,6 @@ void disableAmp() {
   pinMode(PA_PIN, OUTPUT);
   digitalWrite(PA_PIN, LOW);
 }
-#endif
-
-int number_of_beeps = 0;
 
 void beep_on() {
   printf("Beep_on!\n");
@@ -77,11 +82,19 @@ void beep_off() {
   fflush(stdout);
 }
 
+int last_brightness = 0;
 void setBrightness(int i) {
-  (void) i;
+  if (last_brightness != i) {
+    printf("brightness changed: %d -> %d\n", last_brightness, i);
+  last_brightness = i;
+  }
 }
 
 #endif
+
+#define OFF 40
+#define DIM 40
+#define BRIGHT 100
 
 LV_FONT_DECLARE(IBMPlexMonoBold_96)
 LV_FONT_DECLARE(IBMPlexMonoBold_60)
@@ -332,55 +345,6 @@ static void timer_bump_button_event_cb(lv_event_t * e) {
   tab->tick(tab);
 }
 
-void my_timer_cb(lv_timer_t * timer) {
-  (void) timer;
-
-  Tab visibleTab = tabs[visible_tab_index];
-  visibleTab.tick(&visibleTab);
-  
-  // beeper_timer();
-}
-
-void beep_timer_cb(lv_timer_t * timer) {
-  (void) timer;
-#if AUDIO
-  if (number_of_beeps > 0) {
-    static int16_t buf[256 * 2];
-    static float phase = 0;
-    size_t written;
-    
-    written = 0;
-    for (int n = 0; n < (SAMPLE_RATE * 0.25) / 256; n++) {
-      for (int i = 0; i < 256; i++) {
-        int16_t s = (int16_t)(sinf(phase) * 16000);   // was 8000
-        phase += 2 * PI * 1760.0f / SAMPLE_RATE;      // was 440.0f
-        if (phase > 2 * PI) phase -= 2 * PI;
-        buf[2 * i] = s;
-        buf[2 * i + 1] = s;
-      }
-      written += i2s.write((uint8_t *)buf, sizeof(buf));
-    }
-    // printf("wrote %u bytes\n", (unsigned)written);
-
-    written = 0;
-    for (int n = 0; n < (SAMPLE_RATE * 0.25) / 256; n++) {
-      for (int i = 0; i < 256; i++) {
-        int16_t s = (int16_t)(sinf(phase) * 16000);   // was 8000
-        phase += 2 * PI * 880.0f / SAMPLE_RATE;      // was 440.0f
-        if (phase > 2 * PI) phase -= 2 * PI;
-        buf[2 * i] = s;
-        buf[2 * i + 1] = s;
-      }
-      written += i2s.write((uint8_t *)buf, sizeof(buf));
-    }
-    // printf("wrote %u bytes\n", (unsigned)written);
-    number_of_beeps--;
-  } else {
-    disableAmp();
-  }
-#endif
-}
-
 void timer_tab_tick(Tab * tab) {
   TimerTabData * timer_tab_data = (TimerTabData *) (tab -> tab_data);
   TT_TYPE remaining_ms = tt_remaining(&timer_tab_data->tt);
@@ -406,9 +370,9 @@ void timer_tab_tick(Tab * tab) {
   }
 
   if (timer_tab_data->tt.running) {
-    setBrightness(100);
+    setBrightness(BRIGHT);
   } else {
-    setBrightness(40);
+    setBrightness(DIM);
   }
 
   char label[TIMER_LABEL_L];
@@ -424,8 +388,8 @@ void timer_tab_tick(Tab * tab) {
 
 void setup_timer_tab (lv_obj_t * tabview, Tab * tab, char * title, int start_seconds, const int * beep_points) {
   lv_obj_t * lv_tabview_tab = lv_tabview_add_tab(tabview, title);
-  lv_obj_set_style_bg_color(lv_tabview_tab, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_opa(lv_tabview_tab, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_color(lv_tabview_tab, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
   
   tab->tick = timer_tab_tick;
   tab->name = title;
@@ -464,54 +428,58 @@ void setup_timer_tab (lv_obj_t * tabview, Tab * tab, char * title, int start_sec
   
   tt_init(&(timer_tab_data->tt), start_seconds * 1000);
 
-  timer_tab_data->button = lv_btn_create(lv_tabview_tab);
-  lv_obj_set_align(timer_tab_data->button, LV_ALIGN_CENTER);
-  lv_obj_set_size(timer_tab_data->button, lv_pct(100), lv_pct(50));
-  lv_obj_add_event_cb(timer_tab_data->button, timer_button_event_cb, LV_EVENT_LONG_PRESSED, tab);
-  lv_obj_add_event_cb(timer_tab_data->button, timer_button_event_cb, LV_EVENT_SINGLE_CLICKED, tab);
-
-  timer_tab_data->label = lv_label_create(timer_tab_data->button);
-  lv_label_set_text(timer_tab_data->label, title);
-  lv_obj_set_align(timer_tab_data->label, LV_ALIGN_CENTER);
-// lv_obj_set_style_text_font(timer_tab_data->label, &montserrat_96, 0);
-  lv_obj_set_style_text_font(timer_tab_data->label, &IBMPlexMonoBold_96, 0);
-
+  lv_obj_t * obj;
   lv_obj_t * label;
+
+  obj = timer_tab_data->button = lv_btn_create(lv_tabview_tab);
+  lv_obj_add_event_cb(obj, timer_button_event_cb, LV_EVENT_LONG_PRESSED, tab);
+  lv_obj_add_event_cb(obj, timer_button_event_cb, LV_EVENT_SINGLE_CLICKED, tab);
+  lv_obj_set_align(obj, LV_ALIGN_CENTER);
+  lv_obj_set_size(obj, lv_pct(100), lv_pct(50));
+
+  obj = timer_tab_data->label = lv_label_create(timer_tab_data->button);
+  lv_obj_set_align(obj, LV_ALIGN_CENTER);
+  lv_obj_set_style_text_font(obj, &IBMPlexMonoBold_96, 0);
+
   TimerBump * bump;
     
-  timer_tab_data->up_button = lv_btn_create(lv_tabview_tab);
-  lv_obj_set_align(timer_tab_data->up_button, LV_ALIGN_TOP_MID);
-  lv_obj_set_size(timer_tab_data->up_button, lv_pct(100), lv_pct(20));
   bump = makeTimerBump(timer_tab_data, +10);
-  lv_obj_add_event_cb(timer_tab_data->up_button, timer_bump_button_event_cb, LV_EVENT_CLICKED, bump);
-  lv_obj_add_event_cb(timer_tab_data->up_button, timer_bump_button_event_cb, LV_EVENT_LONG_PRESSED, bump);
-  lv_obj_add_event_cb(timer_tab_data->up_button, timer_bump_button_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, bump);
+  obj = timer_tab_data->up_button = lv_btn_create(lv_tabview_tab);
+  lv_obj_add_event_cb(obj, timer_bump_button_event_cb, LV_EVENT_CLICKED, bump);
+  lv_obj_add_event_cb(obj, timer_bump_button_event_cb, LV_EVENT_LONG_PRESSED, bump);
+  lv_obj_add_event_cb(obj, timer_bump_button_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, bump);
+  lv_obj_set_align(obj, LV_ALIGN_TOP_MID);
+  lv_obj_set_size(obj, lv_pct(100), lv_pct(20));
+  
   label = lv_label_create(timer_tab_data->up_button);          /*Add a label to the button*/
+  lv_obj_center(label);
+  lv_obj_set_style_text_font(label, &lv_font_montserrat_48, 0);
   lv_label_set_text(label, LV_SYMBOL_UP);                     /*Set the labels text*/
-  lv_obj_set_style_text_font(label, &lv_font_montserrat_48, 0);
-  lv_obj_center(label);
 
-  timer_tab_data->down_button = lv_btn_create(lv_tabview_tab);
-  lv_obj_set_align(timer_tab_data->down_button, LV_ALIGN_BOTTOM_MID);
-  lv_obj_set_size(timer_tab_data->down_button, lv_pct(100), lv_pct(20));
   bump = makeTimerBump(timer_tab_data, -10);
-  lv_obj_add_event_cb(timer_tab_data->down_button, timer_bump_button_event_cb, LV_EVENT_CLICKED, bump);
-  lv_obj_add_event_cb(timer_tab_data->down_button, timer_bump_button_event_cb, LV_EVENT_LONG_PRESSED, bump);
-  lv_obj_add_event_cb(timer_tab_data->down_button, timer_bump_button_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, bump);
+  obj = timer_tab_data->down_button = lv_btn_create(lv_tabview_tab);
+  lv_obj_add_event_cb(obj, timer_bump_button_event_cb, LV_EVENT_CLICKED, bump);
+  lv_obj_add_event_cb(obj, timer_bump_button_event_cb, LV_EVENT_LONG_PRESSED, bump);
+  lv_obj_add_event_cb(obj, timer_bump_button_event_cb, LV_EVENT_LONG_PRESSED_REPEAT, bump);
+  lv_obj_set_align(obj, LV_ALIGN_BOTTOM_MID);
+  lv_obj_set_size(obj, lv_pct(100), lv_pct(20));
+
   label = lv_label_create(timer_tab_data->down_button);          /*Add a label to the button*/
-  lv_label_set_text(label, LV_SYMBOL_DOWN);                     /*Set the labels text*/
-  lv_obj_set_style_text_font(label, &lv_font_montserrat_48, 0);
   lv_obj_center(label);
+  lv_obj_set_style_text_font(label, &lv_font_montserrat_48, 0);
+  lv_label_set_text(label, LV_SYMBOL_DOWN);                     /*Set the labels text*/
 
 }
 
 typedef struct MiscTabData_s MiscTabData;
 
 #define TOD_LABEL_L 40
+#define BATTERY_LABEL_L 10
 struct MiscTabData_s {
   lv_obj_t * time_label;
   lv_obj_t * battery_label;
   char last_tod_text[TOD_LABEL_L];
+  char last_battery_text[BATTERY_LABEL_L];
 };
 
 void misc_tab_tick(Tab * tab) {
@@ -528,13 +496,26 @@ void misc_tab_tick(Tab * tab) {
       memcpy(&misc_tab_data->last_tod_text, text, TOD_LABEL_L);
     }
   }
+
+  char batt_text[BATTERY_LABEL_L];
+  if (power.isBatteryConnect()) {
+    snprintf(batt_text, sizeof(batt_text), "%d%%", power.getBatteryPercent());
+  } else {
+    snprintf(batt_text, sizeof(batt_text), "missing");
+  }
+  // only update if necessary
+  if (strcmp(batt_text, misc_tab_data->last_battery_text) != 0) {
+    lv_label_set_text(misc_tab_data->battery_label, batt_text);
+    memcpy(&misc_tab_data->last_battery_text, batt_text, BATTERY_LABEL_L);
+  }
+
 #else
   (void) misc_tab_data;
 #endif
 
 }
 
-void setup_misc_tab (lv_obj_t * tabview, Tab * tab) {
+void setup_misc_tab (lv_obj_t * tabview, Tab * tab, lv_obj_t * top) {
   lv_obj_t * lv_tabview_tab = lv_tabview_add_tab(tabview, "Time");
   lv_obj_set_style_bg_color(lv_tabview_tab, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_opa(lv_tabview_tab, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -545,52 +526,120 @@ void setup_misc_tab (lv_obj_t * tabview, Tab * tab) {
   tab->tab_data = malloc(sizeof(MiscTabData));
   MiscTabData * misc_tab_data = (MiscTabData *) tab->tab_data;
 
-  misc_tab_data->time_label = lv_label_create(lv_tabview_tab);
-  lv_obj_set_style_text_line_space(misc_tab_data->time_label, 30, 0); 
-  lv_label_set_text(misc_tab_data->time_label, " 00:00:00 \n0000-00-00");
-  lv_obj_align(misc_tab_data->time_label, LV_ALIGN_CENTER, 0, -50);
-  lv_obj_set_style_text_font(misc_tab_data->time_label, &IBMPlexMonoBold_60, 0);
-  lv_obj_set_style_text_color(misc_tab_data->time_label, lv_color_white(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_t * obj;
+
+  obj = misc_tab_data->time_label = lv_label_create(lv_tabview_tab);
+  lv_obj_align(obj, LV_ALIGN_CENTER, 0, -50);
+  lv_obj_set_style_text_color(obj, lv_color_white(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_font(obj, &IBMPlexMonoBold_60, 0);
+  lv_obj_set_style_text_line_space(obj, 30, 0); 
+  lv_label_set_text(obj, " 00:00:00 \n0000-00-00");
 
   misc_tab_data->last_tod_text[0] = 0;
+  misc_tab_data->last_battery_text[0] = 0;
+
+  obj = misc_tab_data->battery_label = lv_label_create(top);
+  lv_obj_align(obj, LV_ALIGN_CENTER, 80, 0);
+  lv_obj_set_style_bg_color(obj, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_set_style_text_color(obj, lv_color_white(), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_text_font(obj, &lv_font_montserrat_48, 0);
+  lv_obj_set_width(obj, 150);
+  lv_label_set_text(obj, ".");
+}
+
+void my_timer_cb(lv_timer_t * timer) {
+  (void) timer;
+
+  Tab visibleTab = tabs[visible_tab_index];
+  visibleTab.tick(&visibleTab);
+  
+  uint32_t inactive = lv_display_get_inactive_time(NULL);
+
+  if (inactive < 5000) {
+    setBrightness(BRIGHT);
+  } else {
+    setBrightness(DIM);
+  }
+}
+
+void beep_timer_cb(lv_timer_t * timer) {
+  (void) timer;
+#if ARDUINO
+  if (number_of_beeps > 0) {
+    static int16_t buf[256 * 2];
+    static float phase = 0;
+    size_t written;
+    
+    written = 0;
+    for (int n = 0; n < (SAMPLE_RATE * 0.25) / 256; n++) {
+      for (int i = 0; i < 256; i++) {
+        int16_t s = (int16_t)(sinf(phase) * 16000);   // was 8000
+        phase += 2 * PI * 1760.0f / SAMPLE_RATE;      // was 440.0f
+        if (phase > 2 * PI) phase -= 2 * PI;
+        buf[2 * i] = s;
+        buf[2 * i + 1] = s;
+      }
+      written += i2s.write((uint8_t *)buf, sizeof(buf));
+    }
+    // printf("wrote %u bytes\n", (unsigned)written);
+
+    written = 0;
+    for (int n = 0; n < (SAMPLE_RATE * 0.25) / 256; n++) {
+      for (int i = 0; i < 256; i++) {
+        int16_t s = (int16_t)(sinf(phase) * 16000);   // was 8000
+        phase += 2 * PI * 880.0f / SAMPLE_RATE;      // was 440.0f
+        if (phase > 2 * PI) phase -= 2 * PI;
+        buf[2 * i] = s;
+        buf[2 * i + 1] = s;
+      }
+      written += i2s.write((uint8_t *)buf, sizeof(buf));
+    }
+    // printf("wrote %u bytes\n", (unsigned)written);
+    number_of_beeps--;
+  } else {
+    disableAmp();
+  }
+#endif
 }
 
 void app() {
+  setBrightness(BRIGHT);
+
   lv_obj_t * screen = lv_screen_active();
-  lv_obj_set_style_pad_all(screen, 0, LV_PART_MAIN);    // doesn't seem to help
   lv_obj_set_style_bg_color(screen, lv_color_hex(0xFF0000), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_border_width(screen, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(screen, 0, LV_PART_MAIN);    // doesn't seem to help
  
   lv_obj_t * top = lv_obj_create(screen);
-  lv_obj_set_style_pad_all(top, 0, LV_PART_MAIN);       // doesn't seem to help
-  lv_obj_set_size(top, lv_pct(100), lv_pct(15));
   lv_obj_set_align(top, LV_ALIGN_TOP_MID);
+  lv_obj_set_size(top, lv_pct(100), lv_pct(15));
   lv_obj_set_style_bg_color(top, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_opa(top, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_pad_all(top, 0, LV_PART_MAIN);       // doesn't seem to help
 
   lv_obj_t * bottom = lv_obj_create(screen);
-  lv_obj_set_style_pad_all(bottom, 0, LV_PART_MAIN);    // doesn't seem to help
-  lv_obj_set_style_bg_color(bottom, lv_color_hex(0x00FF00), LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_size(bottom, lv_pct(100), lv_pct(85));
   lv_obj_set_align(bottom, LV_ALIGN_BOTTOM_MID);
+  lv_obj_set_size(bottom, lv_pct(100), lv_pct(85));
+  lv_obj_set_style_bg_color(bottom, lv_color_hex(0x00FF00), LV_PART_MAIN | LV_STATE_DEFAULT);
+  lv_obj_set_style_pad_all(bottom, 0, LV_PART_MAIN);    // doesn't seem to help
 
   /* 💡 Tap a tab button or swipe horizontally to switch tabs. */
   lv_obj_t * tabview = lv_tabview_create(bottom);
-  lv_obj_set_style_bg_color(bottom, lv_color_hex(0x0000FF), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_add_event_cb(tabview, tabview_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
   lv_obj_set_size(tabview, lv_pct(100), lv_pct(100));
+  lv_obj_set_style_bg_color(bottom, lv_color_hex(0x0000FF), LV_PART_MAIN | LV_STATE_DEFAULT);
 
-  setup_misc_tab(tabview, &tabs[0]);
+  setup_misc_tab(tabview, &tabs[0], top);
   setup_timer_tab(tabview, &tabs[1], "1:00\nTimeout", 60, (const int[]) {20, 5, -1});
   setup_timer_tab(tabview, &tabs[2], "3:00\nBetween\nSets", 180, (const int[]) {65, 35, 5, -1});
   setup_timer_tab(tabview, &tabs[3], "4/4/2\nWarmup", 10 * 60, (const int[]) {20, 2*60 + 20, 6*60 + 20, -1});
   setup_timer_tab(tabview, &tabs[4], "4/4/4/4\nWarmup", 20 * 60, (const int[]) {20, 2*60 + 5, 4*60 + 20, 8*60 + 20, 12*60 + 20, 16*60 + 20, -1});
   setup_timer_tab(tabview, &tabs[5], "0:06\nTest", 6, (const int[]) {3, -1});
 
-  xxxx("pre-tick");
   tabs[0].tick(&tabs[0]);
-  xxxx("post-tick");
 
   lv_timer_create(my_timer_cb, 500, NULL);
   lv_timer_create(beep_timer_cb, 500, NULL);

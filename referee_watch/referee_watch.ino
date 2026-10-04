@@ -1,10 +1,12 @@
 #include <Wire.h>
 #include <Arduino.h>
 #include "pin_config.h"
+#include <WiFi.h>
 #include <lvgl.h>
 #include "Arduino_GFX_Library.h"
 #include "Arduino_DriveBus_Library.h"
 #include "SensorPCF85063.hpp"
+#include "XPowersLib.h"
 #include "lv_conf.h"
 #include "HWCDC.h"
 #include "app.h"
@@ -24,9 +26,7 @@ bool lvgl_ready = false;
 bool touch_ready = false;
 bool rtc_ready = false;
 
-#if AUDIO
 I2SClass i2s;
-#endif
 
 SensorPCF85063 rtc;
 
@@ -41,6 +41,8 @@ std::shared_ptr<Arduino_IIC_DriveBus> IIC_Bus = std::make_shared<Arduino_HWIIC>(
 void Arduino_IIC_Touch_Interrupt(void);
 
 std::unique_ptr<Arduino_IIC> FT3168(new Arduino_FT3x68(IIC_Bus, FT3168_DEVICE_ADDRESS, DRIVEBUS_DEFAULT_VALUE, TP_INT, Arduino_IIC_Touch_Interrupt));
+
+XPowersPMU power;
 
 void Arduino_IIC_Touch_Interrupt(void) { if (FT3168) FT3168->IIC_Interrupt_Flag = true; }
 
@@ -89,9 +91,11 @@ void setup() {
 #endif
   USBSerial.begin(115200);
 
+  WiFi.mode(WIFI_OFF);
+  WiFi.disconnect(true, true);
+
   if (!gfx || !gfx->begin()) { USBSerial.println("Display initialization failed; LVGL disabled."); return; }
   gfx->fillScreen(RGB565_BLACK);
-  ((Arduino_CO5300 *)gfx)->setBrightness(24);
 
   Wire.begin(IIC_SDA, IIC_SCL);
   for (uint8_t attempt = 1; FT3168 && attempt <= 5 && !touch_ready; ++attempt) {
@@ -126,7 +130,7 @@ void setup() {
     else { touch_ready = false; USBSerial.println("LVGL touch input creation failed; continuing without touch."); }
   }
 
-#if AUDIO
+#if ARDUINO
 
   i2s.setPins(I2S_BCLK, I2S_LRCK, I2S_DOUT, I2S_DIN, I2S_MCLK);
   if (!i2s.begin(I2S_MODE_STD, SAMPLE_RATE, I2S_DATA_BIT_WIDTH_16BIT,
@@ -158,12 +162,38 @@ void setup() {
     // rtc.setDateTime(datetime);
   }
 
+  //***************************************************************************
+
+  if (!power.begin(Wire, AXP2101_SLAVE_ADDRESS, IIC_SDA, IIC_SCL)) {
+    USBSerial.println("Failed to find AXP2101 - check your wiring!");
+    while (1) {
+      delay(1000);
+    }
+  }
+
+  power.disableIRQ(XPOWERS_AXP2101_ALL_IRQ);
+  power.setChargeTargetVoltage(3);
+  // Clear all interrupt flags
+  power.clearIrqStatus();
+  // Enable the required interrupt function
+  power.enableIRQ(
+    XPOWERS_AXP2101_PKEY_SHORT_IRQ  //POWER KEY
+  );
+  // power.enableTemperatureMeasure();
+  // Enable internal ADC detection
+  power.enableBattDetection();
+  // power.enableVbusVoltageMeasure();
+  power.enableBattVoltageMeasure();
+  // power.enableSystemVoltageMeasure();
+
+  //***************************************************************************
+
   // Configure pin as input with internal pull-up resistor
   pinMode(BUTTON_PIN, INPUT_PULLUP);
-    
   // Attach the interrupt to the pin
   attachInterrupt(digitalPinToInterrupt(BUTTON_PIN), handleButtonPress, FALLING);
 
+  //***************************************************************************
 
   app();
 
@@ -172,6 +202,8 @@ void setup() {
 }
 
 void loop() {
+  if (!lvgl_ready) { delay(1000); return; }
+
   if (interruptOccurred) {
     USBSerial.print("Interrupt triggered! Total count: ");
     USBSerial.println(pressCounter);
@@ -179,7 +211,7 @@ void loop() {
     // Reset the flag
     interruptOccurred = false;
   }
-  if (!lvgl_ready) { delay(1000); return; }
+
   lv_task_handler();
   delay(5);
 }
