@@ -14,7 +14,12 @@ Partition Scheme: 16 M Flash (3MB APP / 9.9 MB FATFS)
 
 #include <time.h>
 
+#include "datetime_input.h"
+
 int number_of_beeps = 0;
+
+#define TOD_LABEL_L 40
+#define BATTERY_LABEL_L 10
 
 #if ARDUINO
 #include <Arduino.h>
@@ -406,29 +411,14 @@ void setup_timer_tab (lv_obj_t * tabview, Tab * tab, char * title, int start_sec
 
   // need to make a copy of beep_points because the (const int[]) from the caller
   // can go out of scope and the contents become invalid
-  {
-    int l_index = 0;
-    do {
-      // printf("Beep point %d\n", beep_points[l_index]);
-    } while (beep_points[l_index++] != -1);
-    // printf("Beep point count %d\n", l_index);
-    
-    timer_tab_data -> beep_points = (int *) malloc(l_index * sizeof(int));
-    memcpy(timer_tab_data->beep_points, beep_points, l_index*sizeof(int));
-    
-    // fflush(stdout);
-  }
+  int l_index = 0;
+  do {
+    // printf("Beep point %d\n", beep_points[l_index]);
+  } while (beep_points[l_index++] != -1);
+  // printf("Beep point count %d\n", l_index);
   
-#if 0
-  {
-    const int * bb = timer_tab_data->beep_points;
-    int l_index = 0;
-    do {
-      printf("Beep point* %d\n", bb[l_index]);
-    } while (bb[l_index++] != -1);
-    fflush(stdout);
-  }
-#endif
+  timer_tab_data -> beep_points = (int *) malloc(l_index * sizeof(int));
+  memcpy(timer_tab_data->beep_points, beep_points, l_index*sizeof(int));
   
   tt_init(&(timer_tab_data->tt), start_seconds * 1000);
 
@@ -475,10 +465,132 @@ void setup_timer_tab (lv_obj_t * tabview, Tab * tab, char * title, int start_sec
 
 }
 
+lv_obj_t * prefs_screen = NULL;
+lv_obj_t * datetime_input_widget = NULL;
+
+void prefs_remove() {
+  lv_obj_del(prefs_screen);
+  prefs_screen = NULL;
+  datetime_input_widget = NULL;
+  lv_obj_t * top_layer = lv_layer_top();
+  lv_obj_set_clickable(top_layer, false);
+  lv_obj_set_style_bg_opa(top_layer, LV_OPA_TRANSP, 0);
+}
+
+void prefs_cancel_cb(lv_event_t * e) {
+  (void) e;
+  printf("prefs cancel hit\n");
+  prefs_remove();
+}
+
+void prefs_ok_cb(lv_event_t * e) {
+  (void) e;
+  printf("prefs ok hit\n");
+
+  dt_value_t x;
+  dt_value_t * current_time = &x;
+
+  dt_input_get_value(datetime_input_widget, current_time);
+  char text[TOD_LABEL_L];
+  snprintf(text, sizeof(text), "%04d-%02d-%02d %02d:%02d:%02d \n", current_time->year, current_time->month, current_time->day, current_time->hour, current_time->minute, 0);
+  printf("coming out of prefs with %s\n", text);
+
+#if ARDUINO
+  // set RTC here
+#endif
+
+  prefs_remove();
+}
+
+void prefs_setup(lv_event_t * e) {
+  (void) e;
+  printf("setup requested\n");
+
+  lv_obj_t * top_layer = lv_layer_top();
+
+  /* Make the top layer clickable to act as a modal block */
+  lv_obj_set_clickable(top_layer, true);
+
+  // 1. Create the setup screen container on the top layer
+  prefs_screen = lv_obj_create(top_layer);
+  lv_obj_set_size(prefs_screen, LV_PCT(100), LV_PCT(70));
+  lv_obj_center(prefs_screen);
+
+  // 2. Add content to your setup screen
+  lv_obj_t * title = lv_label_create(prefs_screen);
+  lv_label_set_text(title, "Setup Settings");
+  lv_obj_center(title);
+
+  dt_value_t default_time = {
+    .year = 1959,
+    .month = 6,
+    .day = 12,
+    .hour = 11,
+    .minute = 59
+  };
+  dt_value_t * current_time = &default_time;
+
+  char text[TOD_LABEL_L];
+#if ARDUINO
+  printf("ARDUINO\n");
+  if (rtc_ready) {
+    RTC_DateTime datetime = rtc.getDateTime();
+    snprintf(text, sizeof(text), "%04d-%02d-%02d %02d:%02d:%02d", datetime.getYear(), datetime.getMonth(), datetime.getDay(), datetime.getHour(), datetime.getMinute(), datetime.getSecond());
+    printf("RTC sez %s\n", text);
+    dt_value_t a_time = {
+      .year = datetime.getYear(),
+      .month = datetime.getMonth(),
+      .day = datetime.getDay(),
+      .hour = datetime.getHour(),
+      .minute = datetime.getMinute()
+    };
+    current_time = &a_time;
+  }
+#else
+  printf("not ARDUINO\n");
+  time_t raw_time = time(NULL);
+  struct tm * info = localtime(&raw_time);
+  dt_value_t a_time = {
+    .year = info->tm_year + 1900,
+    .month = info->tm_mon + 1,
+    .day = info->tm_mday,
+    .hour = info->tm_hour,
+    .minute = info->tm_min
+  };
+  current_time = &a_time;
+#endif
+
+  datetime_input_widget = dt_input_create(prefs_screen);
+
+  snprintf(text, sizeof(text), "%04d-%02d-%02d %02d:%02d:%02d \n", current_time->year, current_time->month, current_time->day, current_time->hour, current_time->minute, 0);
+  printf("going into prefs with %s\n", text);
+
+  dt_input_set_value(datetime_input_widget, current_time);
+
+  lv_obj_t * label;
+
+  lv_obj_t * ok_b = lv_button_create(prefs_screen);
+  lv_obj_add_event_cb(ok_b, prefs_ok_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_set_align(ok_b, LV_ALIGN_BOTTOM_MID);
+
+  label = lv_label_create(ok_b);          /*Add a label to the button*/
+  lv_obj_center(label);
+  lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+  lv_label_set_text(label, "OK");
+
+  lv_obj_t * cancel_b = lv_button_create(prefs_screen);
+  lv_obj_add_event_cb(cancel_b, prefs_cancel_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_set_align(cancel_b, LV_ALIGN_BOTTOM_RIGHT);
+
+  label = lv_label_create(cancel_b);          /*Add a label to the button*/
+  lv_obj_center(label);
+  lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+  lv_label_set_text(label, "Cancel");
+
+}
+
 typedef struct MiscTabData_s MiscTabData;
 
-#define TOD_LABEL_L 40
-#define BATTERY_LABEL_L 10
 struct MiscTabData_s {
   lv_obj_t * time_label;
   lv_obj_t * battery_label;
@@ -499,6 +611,8 @@ void misc_tab_tick(Tab * tab) {
       lv_label_set_text(misc_tab_data->time_label, text);
       memcpy(&misc_tab_data->last_tod_text, text, TOD_LABEL_L);
     }
+  } else {
+    lv_label_set_text(misc_tab_data->time_label, "RTC broke");
   }
 
   char batt_text[BATTERY_LABEL_L];
@@ -515,6 +629,11 @@ void misc_tab_tick(Tab * tab) {
 
 #else
   (void) misc_tab_data;
+  time_t raw_time = time(NULL);
+  struct tm * info = localtime(&raw_time);
+  char text[TOD_LABEL_L];
+  snprintf(text, sizeof(text), " %02d:%02d:%02d \n%04d-%02d-%02d", info->tm_hour, info->tm_min, info->tm_sec, info->tm_year + 1900, info->tm_mon + 1, info->tm_mday);
+  lv_label_set_text(misc_tab_data->time_label, text);
 #endif
 
 }
@@ -529,6 +648,9 @@ void setup_misc_tab (lv_obj_t * tabview, Tab * tab, lv_obj_t * top) {
   tab->tab_data = malloc(sizeof(MiscTabData));
   MiscTabData * misc_tab_data = (MiscTabData *) tab->tab_data;
   tab->ok_to_turn_off_display = true;
+
+  // lv_obj_add_event_cb(lv_tabview_tab, prefs_setup, LV_EVENT_SHORT_CLICKED, NULL);
+  lv_obj_add_event_cb(lv_tabview_tab, prefs_setup, LV_EVENT_TRIPLE_CLICKED, NULL);
 
   lv_obj_t * obj;
 
