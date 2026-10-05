@@ -158,6 +158,39 @@ TimerBump * makeTimerBump(TimerTabData * t, int inc) {
   return rv;
 }
 
+char * event_name (int code) {
+  // static char event_name_other[20];
+  if (code == LV_EVENT_LONG_PRESSED) {
+    return "LV_EVENT_LONG_PRESSED";
+  } else if (code == LV_EVENT_PRESSING) {
+    return "LV_EVENT_LONG_PRESSING";
+  } else if (code == LV_EVENT_SHORT_CLICKED) {
+    return "LV_EVENT_SHORT_CLICKED";
+  } else if (code == LV_EVENT_SINGLE_CLICKED) {
+    return "LV_EVENT_SINGLE_CLICKED";
+  } else if (code == LV_EVENT_DOUBLE_CLICKED) {
+    return "LV_EVENT_DOUBLE_CLICKED";
+  } else if (code == LV_EVENT_TRIPLE_CLICKED) {
+    return "LV_EVENT_TRIPLE_CLICKED";
+  } else if (code == LV_EVENT_LONG_PRESSED) {
+    return "LV_EVENT_LONG_PRESSED";
+  } else if (code == LV_EVENT_LONG_PRESSED_REPEAT) {
+    return "LV_EVENT_LONG_PRESSED_REPEAT";
+  } else if (code == LV_EVENT_CLICKED) {
+    return "LV_EVENT_CLICKED";
+  } else if (code == LV_EVENT_RELEASED) {
+    return "LV_EVENT_RELEASED";
+  } else if (code == LV_EVENT_HOVER_OVER) {
+    return "LV_EVENT_HOVER_OVER";
+  } else if (code == LV_EVENT_HOVER_LEAVE) {
+    return "LV_EVENT_HOVER_LEAVE";
+  } else {
+    //snprintf(event_name_other, sizeof(event_name_other), "Other: %d", code);
+    //return event_name_other; 
+    return "?";
+  }
+}
+
 void tt_init (TT * tt, TT_TYPE start_value) {
   tt->running = false;
   tt->accumulated = 0;
@@ -229,16 +262,6 @@ bool is_i_in_list(int i, const int * lp) {
 
 Tab tabs[6];
 
-void xxxx(char * c) {
-#if 0
-  for (int i = 0; i < 4; i++) {
-    printf("%s: tab %d name = '%s'\n", c, i, tabs[i].name);
-  }
-#else
-  (void) c;
-#endif
-}
-
 uint32_t visible_tab_index = 0;
 
 static void tabview_event_cb(lv_event_t * e) {
@@ -253,39 +276,6 @@ static void tabview_event_cb(lv_event_t * e) {
     
     printf("\nChanged to tab %d\n", visible_tab_index);
     fflush(stdout);
-  }
-}
-
-char * event_name (int code) {
-  // static char event_name_other[20];
-  if (code == LV_EVENT_LONG_PRESSED) {
-    return "LV_EVENT_LONG_PRESSED";
-  } else if (code == LV_EVENT_PRESSING) {
-    return "LV_EVENT_LONG_PRESSING";
-  } else if (code == LV_EVENT_SHORT_CLICKED) {
-    return "LV_EVENT_SHORT_CLICKED";
-  } else if (code == LV_EVENT_SINGLE_CLICKED) {
-    return "LV_EVENT_SINGLE_CLICKED";
-  } else if (code == LV_EVENT_DOUBLE_CLICKED) {
-    return "LV_EVENT_DOUBLE_CLICKED";
-  } else if (code == LV_EVENT_TRIPLE_CLICKED) {
-    return "LV_EVENT_TRIPLE_CLICKED";
-  } else if (code == LV_EVENT_LONG_PRESSED) {
-    return "LV_EVENT_LONG_PRESSED";
-  } else if (code == LV_EVENT_LONG_PRESSED_REPEAT) {
-    return "LV_EVENT_LONG_PRESSED_REPEAT";
-  } else if (code == LV_EVENT_CLICKED) {
-    return "LV_EVENT_CLICKED";
-  } else if (code == LV_EVENT_RELEASED) {
-    return "LV_EVENT_RELEASED";
-  } else if (code == LV_EVENT_HOVER_OVER) {
-    return "LV_EVENT_HOVER_OVER";
-  } else if (code == LV_EVENT_HOVER_LEAVE) {
-    return "LV_EVENT_HOVER_LEAVE";
-  } else {
-    //snprintf(event_name_other, sizeof(event_name_other), "Other: %d", code);
-    //return event_name_other; 
-    return "?";
   }
 }
 
@@ -338,8 +328,10 @@ static void timer_bump_button_event_cb(lv_event_t * e) {
   
   if (code == LV_EVENT_LONG_PRESSED || code == LV_EVENT_LONG_PRESSED_REPEAT) {
     bump->consecutive_long_presses++;
-    if (bump->consecutive_long_presses > 5) {
-      amount = amount * 6;
+    if (bump->consecutive_long_presses > 10) {
+      amount = amount * 60;
+    } else if (bump->consecutive_long_presses > 5) {
+      amount = amount * 10;
     }
     // printf("Consecutive = %d, amount = %d\n", bump->consecutive_long_presses, amount);  
   } else {
@@ -355,8 +347,6 @@ void timer_tab_tick(Tab * tab) {
   TimerTabData * timer_tab_data = (TimerTabData *) (tab -> tab_data);
   TT_TYPE remaining_ms = tt_remaining(&timer_tab_data->tt);
 
-  //xxxx("pretick");
-  
   int rs = remaining_ms / 1000;
   if (remaining_ms > 0 && rs == 0) rs = 1;
   if (remaining_ms <= 0) rs = 0;
@@ -391,11 +381,9 @@ void timer_tab_tick(Tab * tab) {
     lv_label_set_text(timer_tab_data->label, label);
     memcpy(&timer_tab_data->last_mmss_text, label, TIMER_LABEL_L);
   }
-
-  //xxxx("posttick");
 }
 
-void setup_timer_tab (lv_obj_t * tabview, Tab * tab, char * title, int start_seconds, const int * beep_points) {
+void timer_tab_setup (lv_obj_t * tabview, Tab * tab, char * title, int start_seconds, const int * beep_points) {
   lv_obj_t * lv_tabview_tab = lv_tabview_add_tab(tabview, title);
   lv_obj_set_style_bg_opa(lv_tabview_tab, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_color(lv_tabview_tab, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -437,7 +425,7 @@ void setup_timer_tab (lv_obj_t * tabview, Tab * tab, char * title, int start_sec
 
   TimerBump * bump;
     
-  bump = makeTimerBump(timer_tab_data, +10);
+  bump = makeTimerBump(timer_tab_data, +1);
   obj = timer_tab_data->up_button = lv_btn_create(lv_tabview_tab);
   lv_obj_add_event_cb(obj, timer_bump_button_event_cb, LV_EVENT_CLICKED, bump);
   lv_obj_add_event_cb(obj, timer_bump_button_event_cb, LV_EVENT_LONG_PRESSED, bump);
@@ -450,7 +438,7 @@ void setup_timer_tab (lv_obj_t * tabview, Tab * tab, char * title, int start_sec
   lv_obj_set_style_text_font(label, &lv_font_montserrat_48, 0);
   lv_label_set_text(label, LV_SYMBOL_UP);                     /*Set the labels text*/
 
-  bump = makeTimerBump(timer_tab_data, -10);
+  bump = makeTimerBump(timer_tab_data, -1);
   obj = timer_tab_data->down_button = lv_btn_create(lv_tabview_tab);
   lv_obj_add_event_cb(obj, timer_bump_button_event_cb, LV_EVENT_CLICKED, bump);
   lv_obj_add_event_cb(obj, timer_bump_button_event_cb, LV_EVENT_LONG_PRESSED, bump);
@@ -492,11 +480,14 @@ void prefs_ok_cb(lv_event_t * e) {
 
   dt_input_get_value(datetime_input_widget, current_time);
   char text[TOD_LABEL_L];
-  snprintf(text, sizeof(text), "%04d-%02d-%02d %02d:%02d:%02d \n", current_time->year, current_time->month, current_time->day, current_time->hour, current_time->minute, 0);
+  snprintf(text, sizeof(text), "%.4d-%.2d-%.2d %.2d:%.2d:%.2d \n", current_time->year, current_time->month, current_time->day, current_time->hour, current_time->minute, 0);
   printf("coming out of prefs with %s\n", text);
 
 #if ARDUINO
-  // set RTC here
+  if (rtc_ready) {
+    rtc.setDateTime(current_time->year, current_time->month, current_time->day, current_time->hour, current_time->minute, 0);
+
+  }
 #endif
 
   prefs_remove();
@@ -535,7 +526,7 @@ void prefs_setup(lv_event_t * e) {
   printf("ARDUINO\n");
   if (rtc_ready) {
     RTC_DateTime datetime = rtc.getDateTime();
-    snprintf(text, sizeof(text), "%04d-%02d-%02d %02d:%02d:%02d", datetime.getYear(), datetime.getMonth(), datetime.getDay(), datetime.getHour(), datetime.getMinute(), datetime.getSecond());
+    snprintf(text, sizeof(text), "%.4d-%.2d-%.2d %.2d:%.2d:%.2d", datetime.getYear(), datetime.getMonth(), datetime.getDay(), datetime.getHour(), datetime.getMinute(), datetime.getSecond());
     printf("RTC sez %s\n", text);
     dt_value_t a_time = {
       .year = datetime.getYear(),
@@ -638,7 +629,7 @@ void misc_tab_tick(Tab * tab) {
 
 }
 
-void setup_misc_tab (lv_obj_t * tabview, Tab * tab, lv_obj_t * top) {
+void misc_tab_setup (lv_obj_t * tabview, Tab * tab, lv_obj_t * top) {
   lv_obj_t * lv_tabview_tab = lv_tabview_add_tab(tabview, "Time");
   lv_obj_set_style_bg_color(lv_tabview_tab, lv_color_black(), LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_bg_opa(lv_tabview_tab, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -764,12 +755,12 @@ void app() {
   lv_obj_set_size(tabview, lv_pct(100), lv_pct(100));
   lv_obj_set_style_bg_color(bottom, lv_color_hex(0x0000FF), LV_PART_MAIN | LV_STATE_DEFAULT);
 
-  setup_misc_tab(tabview, &tabs[0], top);
-  setup_timer_tab(tabview, &tabs[1], "1:00\nTimeout", 60, (const int[]) {20, 5, -1});
-  setup_timer_tab(tabview, &tabs[2], "3:00\nBetween\nSets", 180, (const int[]) {65, 35, 5, -1});
-  setup_timer_tab(tabview, &tabs[3], "4/4/2\nWarmup", 10 * 60, (const int[]) {20, 2*60 + 20, 6*60 + 20, -1});
-  setup_timer_tab(tabview, &tabs[4], "4/4/4/4\nWarmup", 20 * 60, (const int[]) {20, 2*60 + 5, 4*60 + 20, 8*60 + 20, 12*60 + 20, 16*60 + 20, -1});
-  setup_timer_tab(tabview, &tabs[5], "0:06\nTest", 6, (const int[]) {3, -1});
+  misc_tab_setup(tabview, &tabs[0], top);
+  timer_tab_setup(tabview, &tabs[1], "1:00\nTimeout", 60, (const int[]) {20, 5, -1});
+  timer_tab_setup(tabview, &tabs[2], "3:00\nBetween\nSets", 180, (const int[]) {65, 35, 5, -1});
+  timer_tab_setup(tabview, &tabs[3], "4/4/2\nWarmup", 10 * 60, (const int[]) {20, 2*60 + 20, 6*60 + 20, -1});
+  timer_tab_setup(tabview, &tabs[4], "4/4/4/4\nWarmup", 20 * 60, (const int[]) {20, 2*60 + 5, 4*60 + 20, 8*60 + 20, 12*60 + 20, 16*60 + 20, -1});
+  timer_tab_setup(tabview, &tabs[5], "0:06\nTest", 6, (const int[]) {3, -1});
 
   tabs[0].tick(&tabs[0]);
 
